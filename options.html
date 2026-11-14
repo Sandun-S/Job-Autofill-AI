@@ -22,6 +22,7 @@
 </head>
 <body>
   <h1>Job Autofill AI</h1>
+  <p><a href="log.html">Open application log</a></p>
   <p class="hint">Everything is stored only in this browser. Your CV, profile and API keys are sent only to the AI provider you pick, when you click "Scan &amp; suggest".</p>
 
   <h2>AI provider</h2>
@@ -54,6 +55,11 @@
   </div>
   <p class="hint">Use different profiles for different kinds of roles (own CV version and goals for each).</p>
   <div id="form" class="grid"></div>
+
+  <h2>Saved answers</h2>
+  <p class="hint">Answers you gave in the popup for fields the AI could not fill. They are reused on future forms. Edit or delete them here.</p>
+  <div id="answers"></div>
+  <div class="bar"><button id="addAnswer">Add answer</button></div>
 
   <div class="bar"><button id="save" class="primary">Save everything</button><span id="msg"></span></div>
   <script src="options.js"></script>

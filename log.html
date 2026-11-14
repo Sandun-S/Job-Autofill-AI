@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Application log - Job Autofill AI</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px system-ui, sans-serif; max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+  h1 { font-size: 20px; }
+  .bar { display: flex; gap: 8px; align-items: center; margin: 10px 0; flex-wrap: wrap; }
+  input, select, textarea, button { font: inherit; padding: 5px 7px; box-sizing: border-box; }
+  button { border: 1px solid #8884; border-radius: 6px; background: #8881; cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 6px; border-bottom: 1px solid #8883; vertical-align: top; }
+  td input, td textarea { width: 100%; }
+  td textarea { min-height: 32px; resize: vertical; }
+  #summary { opacity: .75; }
+  .nowrap { white-space: nowrap; }
+</style>
+</head>
+<body>
+  <h1>Application log</h1>
+  <div id="summary"></div>
+  <div class="bar">
+    <input id="q" type="text" placeholder="Search role, company, notes...">
+    <select id="statusFilter"></select>
+    <button id="export">Export CSV</button>
+  </div>
+  <table>
+    <thead><tr><th>Date</th><th>Role</th><th>Company</th><th>Status</th><th>Link</th><th>Notes</th><th></th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <p id="empty" hidden>No applications logged yet. They are added automatically when you fill a form, or use "Log as applied" in the popup.</p>
+  <script src="log.js"></script>
+</body>
+</html>

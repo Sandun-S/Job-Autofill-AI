@@ -109,10 +109,60 @@
     return [...(lb || document).querySelectorAll("[role='option']")];
   }
 
-  async function readComboOptions(el) {
+  const norm = (s) =>
+    clean(String(s))
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N} ]/gu, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  function mouse(el, type) {
+    el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0 }));
+  }
+
+  function comboControl(el) {
+    return el.closest("[class*='control' i]") || el.parentElement || el;
+  }
+
+  // Opens the menu the way a real click does (mousedown on the control), falls back to ArrowDown.
+  async function openCombo(el) {
     el.focus();
+    if (comboOptionEls(el).length) return true;
+    mouse(comboControl(el), "mousedown");
+    await sleep(250);
+    if (comboOptionEls(el).length) return true;
     key(el, "ArrowDown");
-    await sleep(200);
+    await sleep(300);
+    return comboOptionEls(el).length > 0;
+  }
+
+  function pickOption(opts, value) {
+    const v = norm(value);
+    if (!v) return null;
+    const items = opts.map((o) => ({ o, t: norm(o.textContent) })).filter((x) => x.t);
+    const hit =
+      items.find((x) => x.t === v) ||
+      items.find((x) => x.t.startsWith(v)) ||
+      items.find((x) => x.t.includes(v)) ||
+      items.find((x) => x.t.length > 1 && v.includes(x.t));
+    if (hit) return hit.o;
+    // word-overlap fallback
+    const vt = v.split(" ").filter((w) => w.length > 1);
+    let best = null;
+    let bestScore = 0;
+    for (const x of items) {
+      const xt = new Set(x.t.split(" "));
+      const score = vt.filter((w) => xt.has(w)).length;
+      if (score > bestScore) {
+        best = x.o;
+        bestScore = score;
+      }
+    }
+    return bestScore >= Math.max(1, Math.ceil(vt.length / 2)) ? best : null;
+  }
+
+  async function readComboOptions(el) {
+    await openCombo(el);
     const labels = comboOptionEls(el)
       .map((o) => clean(o.textContent))
       .filter(Boolean);
@@ -122,32 +172,44 @@
   }
 
   async function fillCombo(el, value) {
-    const v = clean(String(value)).toLowerCase();
-    el.focus();
-    key(el, "ArrowDown");
-    await sleep(200);
-    setNative(el, clean(String(value)));
-    fire(el, ["input"]);
-    let hit = null;
-    for (let i = 0; i < 8 && !hit; i++) {
-      await sleep(300);
-      const opts = comboOptionEls(el);
-      hit =
-        opts.find((o) => clean(o.textContent).toLowerCase() === v) ||
-        opts.find((o) => clean(o.textContent).toLowerCase().startsWith(v)) ||
-        opts.find((o) => clean(o.textContent).toLowerCase().includes(v)) ||
-        null;
-    }
+    const text = clean(String(value));
+    const opened = await openCombo(el);
+    let opts = comboOptionEls(el);
+    let hit = pickOption(opts, text);
+
     if (!hit) {
+      // type to filter / search (also covers async autocompletes like City)
+      setNative(el, text);
+      fire(el, ["input"]);
+      for (let i = 0; i < 8 && !hit; i++) {
+        await sleep(300);
+        opts = comboOptionEls(el);
+        hit = pickOption(opts, text);
+      }
+    }
+
+    if (!hit) {
+      const have = comboOptionEls(el)
+        .slice(0, 6)
+        .map((o) => clean(o.textContent))
+        .join(" | ");
       setNative(el, "");
       fire(el, ["input"]);
       key(el, "Escape");
       el.blur();
-      return false;
+      throw new Error(opened || have ? `no option matches "${text}" (options: ${have || "none"})` : "could not open the dropdown");
     }
-    hit.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+
+    const wanted = norm(hit.textContent);
+    mouse(hit, "mousedown");
+    mouse(hit, "mouseup");
     hit.click();
-    await sleep(100);
+    await sleep(250);
+    // verify; if the menu is still open and the value did not take, press Enter on the focused option
+    if (!norm(comboControl(el).textContent).includes(wanted) && comboOptionEls(el).length) {
+      key(el, "Enter");
+      await sleep(250);
+    }
     el.blur();
     return true;
   }
@@ -333,20 +395,27 @@
   async function fill(values) {
     const filled = [];
     const failed = [];
+    const errors = {};
     for (const [id, value] of Object.entries(values || {})) {
       if (!id.startsWith(frameKey + "-")) continue; // belongs to another frame
       const el = document.querySelector(`[data-jaf-id="${id}"]`);
       if (!el) {
         failed.push(id);
+        errors[id] = "field no longer on the page (rescan)";
         continue;
       }
       try {
-        ((await fillOne(el, value)) ? filled : failed).push(id);
+        if (await fillOne(el, value)) filled.push(id);
+        else {
+          failed.push(id);
+          errors[id] = "no matching option";
+        }
       } catch (e) {
         failed.push(id);
+        errors[id] = (e && e.message) || String(e);
       }
     }
-    return { filled, failed };
+    return { filled, failed, errors };
   }
 
   // Clicks a Next/Continue button. Never clicks anything that looks like Submit/Apply.

@@ -32,4 +32,6 @@ Reads the application form on the page you are viewing (no screenshots), sends t
 - Custom dropdowns (React-Select style, as used by Greenhouse) are supported: the extension opens each one, reads its options, and later picks the match. Very unusual widgets may still need the Copy button.
 - Multi-step forms: use **Fill & Next step**. It fills the current step, clicks Next/Continue (never Submit/Apply), waits, then scans the new step and shows fresh suggestions for you to review.
 - Everything is stored in this browser (`storage.local`). Your data goes only to the provider you chose.
+- **Missing data:** fields the AI could not answer appear in a "Missing data" section in the popup. Type the answer and press "Save for later & fill": it is filled now and stored in Saved answers (editable in Settings), and the AI reuses it on future forms.
+- **Application log:** filling a form adds the page to the log as "In progress". Press "Mark as applied" in the popup when you submit, or change the status in the log page (Applied, Interview, Offer, Rejected, Withdrawn). Each entry keeps the link, notes and date. Export as CSV from the log page.
 - Always review AI answers, especially salary, work authorization and legal questions.

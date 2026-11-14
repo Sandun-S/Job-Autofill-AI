@@ -109,7 +109,8 @@ function writeSettings(s) {
 
 async function load() {
   buildForm();
-  const d = await api.storage.local.get(["settings", "profiles", "activeProfile"]);
+  const d = await api.storage.local.get(["settings", "profiles", "activeProfile", "savedAnswers"]);
+  renderAnswers(d.savedAnswers || []);
   if (d.settings) state.settings = d.settings;
   if (d.profiles && Object.keys(d.profiles).length) state.profiles = d.profiles;
   state.activeProfile = d.activeProfile && state.profiles[d.activeProfile] ? d.activeProfile : Object.keys(state.profiles)[0];
@@ -118,6 +119,44 @@ async function load() {
   renderProfileSelect();
   writeForm(state.profiles[shownProfile]);
 }
+
+// ---------- saved answers ----------
+function answerRow(a) {
+  const row = document.createElement("div");
+  row.className = "ans";
+  row.style.cssText = "display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-bottom:8px;align-items:start";
+  const q = document.createElement("input");
+  q.type = "text";
+  q.placeholder = "Question / field label";
+  q.value = a.label || "";
+  q.dataset.role = "label";
+  const v = document.createElement("textarea");
+  v.placeholder = "Your answer";
+  v.value = a.value || "";
+  v.dataset.role = "value";
+  v.style.minHeight = "36px";
+  const del = document.createElement("button");
+  del.textContent = "Delete";
+  del.onclick = () => row.remove();
+  row.append(q, v, del);
+  return row;
+}
+
+function renderAnswers(list) {
+  $("answers").innerHTML = "";
+  list.forEach((a) => $("answers").appendChild(answerRow(a)));
+}
+
+function readAnswers() {
+  return [...document.querySelectorAll("#answers .ans")]
+    .map((row) => ({
+      label: row.querySelector("[data-role=label]").value.trim(),
+      value: row.querySelector("[data-role=value]").value.trim(),
+    }))
+    .filter((a) => a.label && a.value);
+}
+
+$("addAnswer").onclick = () => $("answers").appendChild(answerRow({}));
 
 $("provider").onchange = showProviderBlocks;
 
@@ -174,6 +213,7 @@ $("save").onclick = async () => {
     settings: state.settings,
     profiles: state.profiles,
     activeProfile: state.activeProfile,
+    savedAnswers: readAnswers(),
   });
   if (!$("msg").textContent) {
     $("msg").style.color = "#2e9e5b";

@@ -16,10 +16,11 @@ const DEFAULTS = {
 };
 
 async function suggest(scan) {
-  const { settings = {}, profiles = {}, activeProfile } = await api.storage.local.get([
+  const { settings = {}, profiles = {}, activeProfile, savedAnswers = [] } = await api.storage.local.get([
     "settings",
     "profiles",
     "activeProfile",
+    "savedAnswers",
   ]);
   const provider = settings.provider || "gemini";
   const cfg = { ...DEFAULTS[provider], ...(settings[provider] || {}) };
@@ -31,7 +32,7 @@ async function suggest(scan) {
   if (!scan.fields.length) throw new Error("No fillable form fields found on this page.");
 
   const system = buildSystem();
-  const user = buildUser(profile, scan);
+  const user = buildUser(profile, scan, savedAnswers);
 
   let text;
   if (provider === "gemini") text = await callGemini(cfg, system, user);
@@ -49,7 +50,7 @@ function buildSystem() {
     "You fill in job application forms for the candidate described in the profile.",
     "Return ONLY a JSON object: {\"values\": {\"<field id>\": <value>, ...}}.",
     "Rules:",
-    "- Use only facts from the profile. Never invent employers, degrees, dates, numbers or links. If the profile lacks the answer, use an empty string.",
+    "- Use only facts from the profile, CV and saved answers. Saved answers are authoritative. Never invent employers, degrees, dates, numbers or links. If the profile lacks the answer, use an empty string.",
     "- For select and radio fields, the value MUST be copied exactly from one of that field's option values (or labels). Pick the closest true match.",
     "- Fields of type \"dropdown\" are custom dropdowns: if options are listed, return one option label exactly; if marked searchable (no options), return a short search text such as a city name (e.g. \"Colombo\").",
     "- This form may be one step of a multi-step application: only answer the fields listed now.",
@@ -61,7 +62,7 @@ function buildSystem() {
   ].join("\n");
 }
 
-function buildUser(p, scan) {
+function buildUser(p, scan, saved) {
   const profileBlock = [
     ["Name", p.fullName], ["Email", p.email], ["Phone", p.phone],
     ["City", p.city], ["Country", p.country], ["Address", p.address],
@@ -94,6 +95,13 @@ function buildUser(p, scan) {
     "=== CANDIDATE PROFILE ===",
     profileBlock,
     "",
+    ...(saved && saved.length
+      ? [
+          "=== SAVED ANSWERS (the candidate's own earlier answers; reuse when a field asks the same thing, even if worded differently) ===",
+          saved.slice(0, 80).map((a) => `Q: ${a.label}\nA: ${a.value}`).join("\n"),
+          "",
+        ]
+      : []),
     "=== CV ===",
     (p.cvText || "").slice(0, 12000),
     "",
