@@ -1,6 +1,6 @@
-# Contributing to Job Autofill AI
+# Contributing to CV Buddy
 
-Thank you for your interest in contributing to **Job Autofill AI**!
+Thank you for your interest in contributing to **CV Buddy**!
 
 ## Reporting Issues
 

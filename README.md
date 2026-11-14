@@ -1,4 +1,4 @@
-# Job Autofill AI
+# CV Buddy
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Manifest V3](https://img.shields.io/badge/Manifest-V3-green.svg)](manifest.json)
@@ -44,7 +44,7 @@ Or download the repository ZIP from [GitHub](https://github.com/Sandun-S/Job-Aut
 1. Open `about:debugging#/runtime/this-firefox`.
 2. Click **Load Temporary Add-on** and select `manifest.json` inside the `Job-Autofill-AI` folder.  
    *(Temporary add-ons are removed when Firefox restarts. For a permanent install, the add-on must be signed via addons.mozilla.org as "unlisted".)*
-3. If requests fail with a permission error, go to `about:addons` > **Job Autofill AI** > **Permissions** and allow access to the API sites.
+3. If requests fail with a permission error, go to `about:addons` > **CV Buddy** > **Permissions** and allow access to the API sites.
 
 ---
 
