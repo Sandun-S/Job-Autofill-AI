@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Job Autofill AI - Settings</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px system-ui, sans-serif; max-width: 760px; margin: 24px auto; padding: 0 16px; }
+  h1 { font-size: 20px; } h2 { font-size: 16px; margin-top: 28px; border-bottom: 1px solid #8884; padding-bottom: 4px; }
+  label { display: block; margin: 10px 0 3px; font-weight: 600; }
+  .hint { font-weight: 400; opacity: .65; font-size: 12px; }
+  input[type=text], input[type=password], select, textarea { width: 100%; box-sizing: border-box; padding: 6px; font: inherit; }
+  textarea { min-height: 70px; resize: vertical; }
+  textarea.big { min-height: 260px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+  .prov { border: 1px solid #8884; border-radius: 8px; padding: 4px 12px 12px; margin-top: 10px; }
+  .bar { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+  button { padding: 7px 14px; border: 1px solid #8884; border-radius: 6px; cursor: pointer; background: #8881; font: inherit; }
+  button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+  #msg { margin-left: 8px; color: #2e9e5b; }
+</style>
+</head>
+<body>
+  <h1>Job Autofill AI</h1>
+  <p class="hint">Everything is stored only in this browser. Your CV, profile and API keys are sent only to the AI provider you pick, when you click "Scan &amp; suggest".</p>
+
+  <h2>AI provider</h2>
+  <label>Provider
+    <select id="provider">
+      <option value="gemini">Google Gemini</option>
+      <option value="deepseek">DeepSeek</option>
+      <option value="custom">Custom (OpenAI-compatible)</option>
+    </select>
+  </label>
+  <div class="prov" id="p-gemini">
+    <label>Gemini API key</label><input type="password" id="gemini-key">
+    <label>Model <span class="hint">e.g. gemini-2.5-flash</span></label><input type="text" id="gemini-model">
+  </div>
+  <div class="prov" id="p-deepseek">
+    <label>DeepSeek API key</label><input type="password" id="deepseek-key">
+    <label>Model <span class="hint">e.g. deepseek-chat</span></label><input type="text" id="deepseek-model">
+  </div>
+  <div class="prov" id="p-custom">
+    <label>Base URL <span class="hint">e.g. https://api.openai.com/v1 or https://openrouter.ai/api/v1</span></label><input type="text" id="custom-baseUrl">
+    <label>API key</label><input type="password" id="custom-key">
+    <label>Model</label><input type="text" id="custom-model">
+  </div>
+
+  <h2>Profile</h2>
+  <div class="bar">
+    <select id="profileSel" style="flex:1"></select>
+    <button id="newP">New</button>
+    <button id="delP">Delete</button>
+  </div>
+  <p class="hint">Use different profiles for different kinds of roles (own CV version and goals for each).</p>
+  <div id="form" class="grid"></div>
+
+  <div class="bar"><button id="save" class="primary">Save everything</button><span id="msg"></span></div>
+  <script src="options.js"></script>
+</body>
+</html>

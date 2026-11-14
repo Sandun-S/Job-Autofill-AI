@@ -1,0 +1,185 @@
+const api = globalThis.browser ?? globalThis.chrome;
+const $ = (id) => document.getElementById(id);
+
+// k = storage key, l = label, t = text | area | big, full = spans both columns
+const FIELDS = [
+  { k: "fullName", l: "Full name" },
+  { k: "email", l: "Email" },
+  { k: "phone", l: "Phone" },
+  { k: "city", l: "City" },
+  { k: "country", l: "Country" },
+  { k: "address", l: "Full address" },
+  { k: "linkedin", l: "LinkedIn URL" },
+  { k: "github", l: "GitHub URL" },
+  { k: "portfolio", l: "Portfolio / website" },
+  { k: "currentTitle", l: "Current job title" },
+  { k: "currentCompany", l: "Current company" },
+  { k: "yearsExperience", l: "Years of experience" },
+  { k: "education", l: "Education (short)" },
+  { k: "languages", l: "Languages" },
+  { k: "expectedSalary", l: "Expected salary" },
+  { k: "noticePeriod", l: "Notice period / availability" },
+  { k: "workAuthorization", l: "Work authorization / visa status" },
+  { k: "targetRoles", l: "Target roles", hint: "e.g. Junior Backend Developer, QA Engineer" },
+  { k: "tone", l: "Writing tone", hint: "e.g. professional, concise, warm" },
+  { k: "goals", l: "My goals and targets", t: "area", full: true,
+    hint: "Where you want your career to go, what you want to learn, what kind of company/team you want. Used to personalize 'why this role' answers and cover letters." },
+  { k: "preferences", l: "Preferences", t: "area", full: true,
+    hint: "Remote/hybrid/onsite, relocation, locations, company size, dealbreakers" },
+  { k: "extraNotes", l: "Extra notes / standard answers", t: "area", full: true,
+    hint: "e.g. 'How did you hear about us: LinkedIn', gender/ethnicity/disability answers (or 'prefer not to say'), references, anything forms often ask" },
+  { k: "cvText", l: "CV content (paste full text)", t: "big", full: true },
+];
+
+let state = { settings: { provider: "gemini" }, profiles: { Default: {} }, activeProfile: "Default" };
+let shownProfile = "Default";
+
+function buildForm() {
+  const form = $("form");
+  FIELDS.forEach((f) => {
+    const wrap = document.createElement("div");
+    if (f.full) wrap.style.gridColumn = "1 / -1";
+    const lab = document.createElement("label");
+    lab.textContent = f.l + " ";
+    if (f.hint) {
+      const h = document.createElement("span");
+      h.className = "hint";
+      h.textContent = f.hint;
+      lab.appendChild(h);
+    }
+    const input = document.createElement(f.t ? "textarea" : "input");
+    if (!f.t) input.type = "text";
+    if (f.t === "big") input.className = "big";
+    input.dataset.k = f.k;
+    wrap.append(lab, input);
+    form.appendChild(wrap);
+  });
+}
+
+function readForm() {
+  const p = {};
+  document.querySelectorAll("[data-k]").forEach((el) => (p[el.dataset.k] = el.value));
+  return p;
+}
+
+function writeForm(p) {
+  document.querySelectorAll("[data-k]").forEach((el) => (el.value = p[el.dataset.k] || ""));
+}
+
+function renderProfileSelect() {
+  const sel = $("profileSel");
+  sel.innerHTML = "";
+  Object.keys(state.profiles).forEach((n) => {
+    const o = document.createElement("option");
+    o.value = n;
+    o.textContent = n;
+    if (n === shownProfile) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+
+function showProviderBlocks() {
+  const p = $("provider").value;
+  ["gemini", "deepseek", "custom"].forEach((n) => ($("p-" + n).style.opacity = n === p ? "1" : ".5"));
+}
+
+function readSettings() {
+  const s = { provider: $("provider").value };
+  s.gemini = { key: $("gemini-key").value.trim(), model: $("gemini-model").value.trim() };
+  s.deepseek = { key: $("deepseek-key").value.trim(), model: $("deepseek-model").value.trim() };
+  s.custom = {
+    baseUrl: $("custom-baseUrl").value.trim(),
+    key: $("custom-key").value.trim(),
+    model: $("custom-model").value.trim(),
+  };
+  return s;
+}
+
+function writeSettings(s) {
+  $("provider").value = s.provider || "gemini";
+  $("gemini-key").value = s.gemini?.key || "";
+  $("gemini-model").value = s.gemini?.model || "gemini-2.5-flash";
+  $("deepseek-key").value = s.deepseek?.key || "";
+  $("deepseek-model").value = s.deepseek?.model || "deepseek-chat";
+  $("custom-baseUrl").value = s.custom?.baseUrl || "";
+  $("custom-key").value = s.custom?.key || "";
+  $("custom-model").value = s.custom?.model || "";
+  showProviderBlocks();
+}
+
+async function load() {
+  buildForm();
+  const d = await api.storage.local.get(["settings", "profiles", "activeProfile"]);
+  if (d.settings) state.settings = d.settings;
+  if (d.profiles && Object.keys(d.profiles).length) state.profiles = d.profiles;
+  state.activeProfile = d.activeProfile && state.profiles[d.activeProfile] ? d.activeProfile : Object.keys(state.profiles)[0];
+  shownProfile = state.activeProfile;
+  writeSettings(state.settings);
+  renderProfileSelect();
+  writeForm(state.profiles[shownProfile]);
+}
+
+$("provider").onchange = showProviderBlocks;
+
+$("profileSel").onchange = () => {
+  state.profiles[shownProfile] = readForm();
+  shownProfile = $("profileSel").value;
+  state.activeProfile = shownProfile;
+  writeForm(state.profiles[shownProfile]);
+};
+
+$("newP").onclick = () => {
+  const name = (prompt("Name for the new profile (e.g. Dev roles, Support roles):") || "").trim();
+  if (!name || state.profiles[name]) return;
+  state.profiles[shownProfile] = readForm();
+  // start from a copy so personal details do not need retyping
+  state.profiles[name] = { ...state.profiles[shownProfile] };
+  shownProfile = name;
+  state.activeProfile = name;
+  renderProfileSelect();
+  writeForm(state.profiles[name]);
+};
+
+$("delP").onclick = () => {
+  const names = Object.keys(state.profiles);
+  if (names.length < 2) return alert("You need at least one profile.");
+  if (!confirm(`Delete profile "${shownProfile}"?`)) return;
+  delete state.profiles[shownProfile];
+  shownProfile = Object.keys(state.profiles)[0];
+  state.activeProfile = shownProfile;
+  renderProfileSelect();
+  writeForm(state.profiles[shownProfile]);
+};
+
+$("save").onclick = async () => {
+  state.profiles[shownProfile] = readForm();
+  state.settings = readSettings();
+  state.activeProfile = shownProfile;
+
+  // Custom provider hosts need an explicit permission grant (must happen in this click).
+  if (state.settings.provider === "custom" && state.settings.custom.baseUrl) {
+    try {
+      const origin = new URL(state.settings.custom.baseUrl).origin + "/*";
+      const ok = await api.permissions.request({ origins: [origin] });
+      if (!ok) {
+        $("msg").style.color = "#d33";
+        $("msg").textContent = "Saved, but access to the custom URL was not granted.";
+      }
+    } catch (e) {
+      $("msg").textContent = "Saved, but the custom base URL looks invalid.";
+    }
+  }
+
+  await api.storage.local.set({
+    settings: state.settings,
+    profiles: state.profiles,
+    activeProfile: state.activeProfile,
+  });
+  if (!$("msg").textContent) {
+    $("msg").style.color = "#2e9e5b";
+    $("msg").textContent = "Saved.";
+  }
+  setTimeout(() => ($("msg").textContent = ""), 3000);
+};
+
+load();

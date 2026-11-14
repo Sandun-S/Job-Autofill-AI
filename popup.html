@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { color-scheme: light dark; }
+  body { width: 440px; margin: 0; font: 13px system-ui, sans-serif; padding: 12px; box-sizing: border-box; }
+  header { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  header select { flex: 1; padding: 5px; }
+  button { padding: 6px 10px; border: 1px solid #8884; border-radius: 6px; cursor: pointer; background: #8881; font: inherit; }
+  button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+  button:disabled { opacity: .5; cursor: default; }
+  #status { margin: 8px 0; min-height: 18px; }
+  #status.err { color: #d33; }
+  #list { max-height: 420px; overflow-y: auto; }
+  .row { border: 1px solid #8884; border-radius: 8px; padding: 8px; margin-bottom: 8px; }
+  .row.empty { opacity: .55; }
+  .lbl { font-weight: 600; margin-bottom: 4px; word-break: break-word; }
+  .meta { font-weight: 400; opacity: .6; font-size: 11px; }
+  .row textarea { width: 100%; box-sizing: border-box; min-height: 30px; resize: vertical; font: inherit; padding: 4px; }
+  .actions { display: flex; gap: 6px; margin-top: 4px; }
+  #bar { display: none; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+  a { cursor: pointer; text-decoration: underline; }
+</style>
+</head>
+<body>
+  <header>
+    <select id="profile"></select>
+    <button id="go" class="primary">Scan &amp; suggest</button>
+  </header>
+  <div id="bar">
+    <button id="fillAll" class="primary">Fill all on page</button>
+    <button id="fillNext">Fill &amp; Next step</button>
+    <button id="copyAll">Copy all</button>
+  </div>
+  <div id="status"></div>
+  <div id="list"></div>
+  <p><a id="opts">Settings / profile</a></p>
+  <script src="popup.js"></script>
+</body>
+</html>
