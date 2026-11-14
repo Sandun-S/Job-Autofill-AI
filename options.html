@@ -50,7 +50,8 @@
   <h2>Profile</h2>
   <div class="bar">
     <select id="profileSel" style="flex:1"></select>
-    <button id="newP">New</button>
+    <button id="newP">New (blank)</button>
+    <button id="dupP">Duplicate</button>
     <button id="delP">Delete</button>
   </div>
   <p class="hint">Use different profiles for different kinds of roles (own CV version and goals for each).</p>
@@ -60,6 +61,7 @@
     <label for="cvFileInput">CV file <span class="hint">(PDF / DOC / DOCX — auto-attached to file upload fields on job forms)</span></label>
     <div class="bar" style="margin-top:6px">
       <input type="file" id="cvFileInput" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="flex:1">
+      <button type="button" id="extractCv">Extract text from file</button>
       <button type="button" id="clearCvFile">Remove file</button>
     </div>
     <p id="cvFileStatus" class="hint" style="margin:6px 0 0"></p>
@@ -71,6 +73,7 @@
   <div class="bar"><button id="addAnswer">Add answer</button></div>
 
   <div class="bar"><button id="save" class="primary">Save everything</button><span id="msg"></span></div>
+  <script src="cvtext.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

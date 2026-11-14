@@ -13,7 +13,8 @@ A privacy-first browser extension (Chrome, Edge, Brave, and Firefox) that reads 
 ## Features
 
 - **Multi-provider AI support:** Works with Google Gemini (`gemini-2.5-flash` default), DeepSeek (`deepseek-chat` default), or any custom OpenAI-compatible endpoint (OpenAI, OpenRouter, local LLMs, etc.).
-- **Multiple profiles:** Maintain separate profiles (with their own CV text, career goals, and preferences) for different target roles.
+- **Multiple profiles:** Maintain separate profiles (own CV file, CV text, goals, preferences and saved answers) for different target roles or different people. Use **Duplicate** to start a new profile from an existing one.
+- **CV file + text:** Attach a PDF/DOCX once. It is auto-attached to CV upload fields, and its text can be extracted into the profile in one click.
 - **Broad form & iframe support:** Handles standard inputs, textareas, `<select>` dropdowns, radio buttons, checkboxes, and React-Select style custom dropdowns (e.g., Greenhouse), including inside cross-origin iframes.
 - **Multi-step forms:** Use **Fill & Next step** to fill the current page, advance to the next step (never clicking Submit/Apply), and re-scan the new step for review.
 - **Saved answers ("Missing data"):** If the AI cannot answer a field, enter it once in the popup and click **Save for later & fill** to store it in Saved Answers for future applications.
@@ -70,7 +71,8 @@ Or download the repository ZIP from [GitHub](https://github.com/Sandun-S/Job-Aut
 
 ## Notes and limits
 
-- File upload fields (e.g., CV PDF) and password fields are skipped on purpose; attach your CV manually.
+- Password fields are skipped on purpose. CV file upload fields are filled from the CV file attached to the active profile (Settings > profile > CV file).
+- **CV text from file:** after attaching a CV, **Extract text from file** copies its text into *CV content*. `.docx` is read locally. A `.pdf` is sent once to Gemini (your Gemini key, even if another provider is selected) which also reads scanned PDFs, so no OCR setup is needed. Review the extracted text before saving.
 - Forms embedded from another domain (e.g., Greenhouse in an iframe) require the "all sites" permission, which the extension requests. Allow it when prompted.
 - Custom dropdowns (React-Select style) are supported: the extension opens each one, reads its options, and selects the matching value. Unusual custom widgets may still require using the **Copy** button.
 - Always review AI-generated answers before submitting, especially salary expectations, work authorization, and legal/EEO questions.

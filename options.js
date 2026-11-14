@@ -28,7 +28,8 @@ const FIELDS = [
     hint: "Remote/hybrid/onsite, relocation, locations, company size, dealbreakers" },
   { k: "extraNotes", l: "Extra notes / standard answers", t: "area", full: true,
     hint: "e.g. 'How did you hear about us: LinkedIn', gender/ethnicity/disability answers (or 'prefer not to say'), references, anything forms often ask" },
-  { k: "cvText", l: "CV content (paste full text)", t: "big", full: true },
+  { k: "cvText", l: "CV content", t: "big", full: true,
+    hint: "Paste it, or attach a file above and use 'Extract text from file'. The AI reads this text; the file itself is only attached to upload fields." },
 ];
 
 const MAX_CV_BYTES = 5 * 1024 * 1024;
@@ -72,9 +73,11 @@ function renderCvFile(file) {
   if (currentCvFile && currentCvFile.name) {
     status.textContent = `Attached: ${currentCvFile.name} (${formatBytes(currentCvFile.size)})`;
     clearBtn.disabled = false;
+    $("extractCv").disabled = false;
   } else {
     status.textContent = "No CV file attached to this profile.";
     clearBtn.disabled = true;
+    $("extractCv").disabled = true;
   }
   $("cvFileInput").value = "";
 }
@@ -204,10 +207,35 @@ $("cvFileInput").onchange = () => {
     const idx = res.indexOf(",");
     const data = idx >= 0 ? res.slice(idx + 1) : res;
     renderCvFile({ name: file.name, type: file.type || "application/pdf", size: file.size, data });
+    // First time: fill the empty CV text box from the file automatically.
+    if (!document.querySelector('[data-k="cvText"]').value.trim()) extractFromFile(true);
   };
   reader.onerror = () => alert("Could not read the selected file.");
   reader.readAsDataURL(file);
 };
+
+// Copies the text of the attached CV file into the CV content box.
+async function extractFromFile(auto) {
+  if (!currentCvFile) return;
+  const box = document.querySelector('[data-k="cvText"]');
+  if (!auto && box.value.trim() && !confirm("Replace the current CV content with the text extracted from the file?")) return;
+  const status = $("cvFileStatus");
+  const base = `Attached: ${currentCvFile.name} (${formatBytes(currentCvFile.size)})`;
+  status.textContent = `${base}. Extracting text...`;
+  $("extractCv").disabled = true;
+  try {
+    const g = readSettings().gemini; // current form values, even if not saved yet
+    const text = await cvText.extract(currentCvFile, g);
+    box.value = text;
+    status.textContent = `${base}. Extracted ${text.length} characters into CV content. Check it, then press Save everything.`;
+  } catch (e) {
+    status.textContent = `${base}. Could not extract text: ${(e && e.message) || e}`;
+  } finally {
+    $("extractCv").disabled = !currentCvFile;
+  }
+}
+
+$("extractCv").onclick = () => extractFromFile(false);
 
 $("clearCvFile").onclick = () => renderCvFile(null);
 
@@ -227,6 +255,19 @@ $("newP").onclick = () => {
   if (!name || state.profiles[name]) return;
   state.profiles[shownProfile] = readForm();
   state.profiles[name] = { savedAnswers: [] };
+  shownProfile = name;
+  state.activeProfile = name;
+  renderProfileSelect();
+  writeForm(state.profiles[name]);
+};
+
+// Copy of the current profile (details, CV file, CV text, saved answers) under a new name,
+// e.g. "Dev roles" -> "Support roles", or a profile for another person to tweak.
+$("dupP").onclick = () => {
+  const name = (prompt(`Name for the copy of "${shownProfile}":`) || "").trim();
+  if (!name || state.profiles[name]) return;
+  state.profiles[shownProfile] = readForm();
+  state.profiles[name] = JSON.parse(JSON.stringify(state.profiles[shownProfile]));
   shownProfile = name;
   state.activeProfile = name;
   renderProfileSelect();
