@@ -31,8 +31,10 @@ const FIELDS = [
   { k: "cvText", l: "CV content (paste full text)", t: "big", full: true },
 ];
 
+const MAX_CV_BYTES = 5 * 1024 * 1024;
 let state = { settings: { provider: "gemini" }, profiles: { Default: {} }, activeProfile: "Default" };
 let shownProfile = "Default";
+let currentCvFile = null;
 
 function buildForm() {
   const form = $("form");
@@ -56,14 +58,39 @@ function buildForm() {
   });
 }
 
+function formatBytes(n) {
+  if (!n) return "0 B";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function renderCvFile(file) {
+  currentCvFile = file || null;
+  const status = $("cvFileStatus");
+  const clearBtn = $("clearCvFile");
+  if (currentCvFile && currentCvFile.name) {
+    status.textContent = `Attached: ${currentCvFile.name} (${formatBytes(currentCvFile.size)})`;
+    clearBtn.disabled = false;
+  } else {
+    status.textContent = "No CV file attached to this profile.";
+    clearBtn.disabled = true;
+  }
+  $("cvFileInput").value = "";
+}
+
 function readForm() {
   const p = {};
   document.querySelectorAll("[data-k]").forEach((el) => (p[el.dataset.k] = el.value));
+  if (currentCvFile) p.cvFile = { ...currentCvFile };
+  p.savedAnswers = readAnswers();
   return p;
 }
 
 function writeForm(p) {
   document.querySelectorAll("[data-k]").forEach((el) => (el.value = p[el.dataset.k] || ""));
+  renderCvFile(p.cvFile || null);
+  renderAnswers(p.savedAnswers || []);
 }
 
 function renderProfileSelect() {
@@ -110,9 +137,16 @@ function writeSettings(s) {
 async function load() {
   buildForm();
   const d = await api.storage.local.get(["settings", "profiles", "activeProfile", "savedAnswers"]);
-  renderAnswers(d.savedAnswers || []);
   if (d.settings) state.settings = d.settings;
   if (d.profiles && Object.keys(d.profiles).length) state.profiles = d.profiles;
+  // Migrate legacy global savedAnswers into profiles that do not yet have per-profile answers.
+  if (Array.isArray(d.savedAnswers) && d.savedAnswers.length) {
+    Object.keys(state.profiles).forEach((name) => {
+      if (!Array.isArray(state.profiles[name].savedAnswers)) {
+        state.profiles[name].savedAnswers = d.savedAnswers.map((a) => ({ ...a }));
+      }
+    });
+  }
   state.activeProfile = d.activeProfile && state.profiles[d.activeProfile] ? d.activeProfile : Object.keys(state.profiles)[0];
   shownProfile = state.activeProfile;
   writeSettings(state.settings);
@@ -156,6 +190,27 @@ function readAnswers() {
     .filter((a) => a.label && a.value);
 }
 
+$("cvFileInput").onchange = () => {
+  const file = $("cvFileInput").files?.[0];
+  if (!file) return;
+  if (file.size > MAX_CV_BYTES) {
+    alert(`CV file is too large (${formatBytes(file.size)}). Maximum allowed is 5 MB.`);
+    $("cvFileInput").value = "";
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const res = String(reader.result || "");
+    const idx = res.indexOf(",");
+    const data = idx >= 0 ? res.slice(idx + 1) : res;
+    renderCvFile({ name: file.name, type: file.type || "application/pdf", size: file.size, data });
+  };
+  reader.onerror = () => alert("Could not read the selected file.");
+  reader.readAsDataURL(file);
+};
+
+$("clearCvFile").onclick = () => renderCvFile(null);
+
 $("addAnswer").onclick = () => $("answers").appendChild(answerRow({}));
 
 $("provider").onchange = showProviderBlocks;
@@ -171,8 +226,7 @@ $("newP").onclick = () => {
   const name = (prompt("Name for the new profile (e.g. Dev roles, Support roles):") || "").trim();
   if (!name || state.profiles[name]) return;
   state.profiles[shownProfile] = readForm();
-  // start from a copy so personal details do not need retyping
-  state.profiles[name] = { ...state.profiles[shownProfile] };
+  state.profiles[name] = { savedAnswers: [] };
   shownProfile = name;
   state.activeProfile = name;
   renderProfileSelect();
@@ -213,8 +267,8 @@ $("save").onclick = async () => {
     settings: state.settings,
     profiles: state.profiles,
     activeProfile: state.activeProfile,
-    savedAnswers: readAnswers(),
   });
+  await api.storage.local.remove("savedAnswers");
   if (!$("msg").textContent) {
     $("msg").style.color = "#2e9e5b";
     $("msg").textContent = "Saved.";

@@ -5,7 +5,7 @@
 
   const frameKey = Math.random().toString(36).slice(2, 6);
   let counter = 0;
-  const SKIP_TYPES = new Set(["hidden", "submit", "button", "reset", "image", "password", "file", "search"]);
+  const SKIP_TYPES = new Set(["hidden", "submit", "button", "reset", "image", "password", "search"]);
   const KEYCODES = { ArrowDown: 40, Escape: 27, Enter: 13 };
 
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
@@ -325,6 +325,18 @@
         return;
       }
 
+      if (type === "file") {
+        fields.push({
+          id: tag(el),
+          type: "file",
+          label: cut(labelFor(el) || ancestorLabel(el) || "File upload", 250),
+          accept: el.getAttribute("accept") || "",
+          required: el.required || el.getAttribute("aria-required") === "true",
+          current: el.files && el.files.length ? el.files[0].name : "",
+        });
+        return;
+      }
+
       if (!isVisible(el)) return;
 
       const f = {
@@ -395,6 +407,20 @@
   async function fillOne(el, value) {
     const tagName = el.tagName.toLowerCase();
     const type = tagName === "input" ? (el.type || "text").toLowerCase() : tagName;
+
+    if (type === "file") {
+      if (!value || typeof value !== "object" || !value.data || !value.name) return false;
+      const bin = atob(value.data);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const file = new File([bytes], value.name, { type: value.type || "application/pdf" });
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      el.files = dt.files;
+      fire(el, ["input", "change"]);
+      mark(isVisible(el) ? el : el.parentElement || el);
+      return true;
+    }
 
     if (el.dataset.jafCombo) {
       const ok = await fillCombo(el, value);

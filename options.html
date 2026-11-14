@@ -56,8 +56,17 @@
   <p class="hint">Use different profiles for different kinds of roles (own CV version and goals for each).</p>
   <div id="form" class="grid"></div>
 
+  <div class="prov" id="cvFileBox" style="margin-top:14px">
+    <label for="cvFileInput">CV file <span class="hint">(PDF / DOC / DOCX — auto-attached to file upload fields on job forms)</span></label>
+    <div class="bar" style="margin-top:6px">
+      <input type="file" id="cvFileInput" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="flex:1">
+      <button type="button" id="clearCvFile">Remove file</button>
+    </div>
+    <p id="cvFileStatus" class="hint" style="margin:6px 0 0"></p>
+  </div>
+
   <h2>Saved answers</h2>
-  <p class="hint">Answers you gave in the popup for fields the AI could not fill. They are reused on future forms. Edit or delete them here.</p>
+  <p class="hint">Saved per profile: answers you gave in the popup for fields the AI could not fill. They are reused on future forms with this profile.</p>
   <div id="answers"></div>
   <div class="bar"><button id="addAnswer">Add answer</button></div>
 

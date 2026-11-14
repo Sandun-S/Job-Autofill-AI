@@ -16,7 +16,7 @@ const DEFAULTS = {
 };
 
 async function suggest(scan) {
-  const { settings = {}, profiles = {}, activeProfile, savedAnswers = [] } = await api.storage.local.get([
+  const { settings = {}, profiles = {}, activeProfile, savedAnswers: legacySaved = [] } = await api.storage.local.get([
     "settings",
     "profiles",
     "activeProfile",
@@ -31,15 +31,21 @@ async function suggest(scan) {
   }
   if (!scan.fields.length) throw new Error("No fillable form fields found on this page.");
 
-  const system = buildSystem();
-  const user = buildUser(profile, scan, savedAnswers);
+  const savedAnswers = Array.isArray(profile.savedAnswers) ? profile.savedAnswers : legacySaved;
+  const aiFields = scan.fields.filter((f) => f.type !== "file");
+  let values = {};
+  if (aiFields.length) {
+    const system = buildSystem();
+    const user = buildUser(profile, { ...scan, fields: aiFields }, savedAnswers);
 
-  let text;
-  if (provider === "gemini") text = await callGemini(cfg, system, user);
-  else text = await callOpenAICompat(provider, cfg, system, user);
+    let text;
+    if (provider === "gemini") text = await callGemini(cfg, system, user);
+    else text = await callOpenAICompat(provider, cfg, system, user);
 
-  const parsed = parseJson(text);
-  const values = parsed.values || parsed;
+    const parsed = parseJson(text);
+    values = parsed.values || parsed;
+  }
+
   const out = { url: scan.url, fields: scan.fields, values };
   await api.storage.local.set({ last: out });
   return out;

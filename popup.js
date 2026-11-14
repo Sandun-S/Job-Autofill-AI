@@ -4,6 +4,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let tab = null;
 let current = null; // { fields, values }
+let activeCvFile = null;
 
 function setStatus(msg, isErr) {
   $("status").textContent = msg || "";
@@ -89,7 +90,14 @@ async function init() {
     if (n === activeProfile) o.selected = true;
     $("profile").appendChild(o);
   });
-  $("profile").onchange = () => api.storage.local.set({ activeProfile: $("profile").value });
+  const curProfile = activeProfile && profiles[activeProfile] ? activeProfile : names[0];
+  activeCvFile = (curProfile && profiles[curProfile]?.cvFile) || null;
+  $("profile").onchange = async () => {
+    const chosen = $("profile").value;
+    await api.storage.local.set({ activeProfile: chosen });
+    const d = await api.storage.local.get("profiles");
+    activeCvFile = d.profiles?.[chosen]?.cvFile || null;
+  };
 
   await showLogLine();
 
@@ -135,6 +143,20 @@ async function runScan() {
     const res = await api.runtime.sendMessage({ type: "suggest", scan: merged });
     if (!res || res.error) throw new Error(res?.error || "No response from background.");
     current = { ...res, url: tab.url };
+
+    // Auto-match CV file to CV/Resume file upload inputs locally.
+    const { profiles = {}, activeProfile } = await api.storage.local.get(["profiles", "activeProfile"]);
+    activeCvFile = profiles[activeProfile]?.cvFile || null;
+    if (activeCvFile) {
+      const fileFields = current.fields.filter((f) => f.type === "file");
+      fileFields.forEach((f) => {
+        if (isCvFileField(f, fileFields)) {
+          current.values[f.id] = activeCvFile;
+        }
+      });
+      await api.storage.local.set({ last: current });
+    }
+
     render();
     const missing = current.fields.filter(isMissing).filter((f) => f.required).length;
     const n = current.fields.filter((f) => !isMissing(f)).length;
@@ -153,7 +175,14 @@ async function runScan() {
 $("go").onclick = runScan;
 
 // ---------- rendering ----------
+function isCvFileField(f, allFileFields) {
+  if (/cv|resume|curriculum|vitae/i.test(f.label || "")) return true;
+  if (allFileFields.length === 1 && (!f.accept || /pdf|doc|msword|wordprocessingml/i.test(f.accept))) return true;
+  return false;
+}
+
 function hasValue(v) {
+  if (v && typeof v === "object") return Boolean(v.name && v.data);
   return v !== undefined && v !== null && String(v) !== "";
 }
 
@@ -181,6 +210,31 @@ function buildLabel(f) {
 function suggestionRow(f) {
   const row = document.createElement("div");
   row.className = "row";
+
+  if (f.type === "file") {
+    const fileVal = current.values[f.id];
+    const info = document.createElement("div");
+    info.className = "meta";
+    info.style.opacity = "0.9";
+    info.textContent = `Profile CV: ${fileVal.name}`;
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    const fill = document.createElement("button");
+    fill.className = "primary";
+    fill.textContent = "Attach";
+    fill.onclick = () => fillValues({ [f.id]: fileVal });
+    const skip = document.createElement("button");
+    skip.textContent = "Skip";
+    skip.onclick = async () => {
+      delete current.values[f.id];
+      await api.storage.local.set({ last: current });
+      render();
+    };
+    actions.append(fill, skip);
+    row.append(buildLabel(f), info, actions);
+    return row;
+  }
+
   const ta = document.createElement("textarea");
   ta.value = String(current.values[f.id]);
   ta.oninput = () => {
@@ -208,6 +262,30 @@ function suggestionRow(f) {
 function missingRow(f) {
   const row = document.createElement("div");
   row.className = "row miss";
+
+  if (f.type === "file") {
+    const info = document.createElement("div");
+    info.className = "meta";
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    if (activeCvFile) {
+      info.textContent = "Not auto-matched as a CV/Resume field.";
+      const attach = document.createElement("button");
+      attach.className = "primary";
+      attach.textContent = `Attach ${activeCvFile.name}`;
+      attach.onclick = async () => {
+        current.values[f.id] = activeCvFile;
+        await api.storage.local.set({ last: current });
+        render();
+        await fillValues({ [f.id]: activeCvFile });
+      };
+      actions.append(attach);
+    } else {
+      info.textContent = "No CV file attached to this profile. Add one in Settings / profile, or upload manually on the page.";
+    }
+    row.append(buildLabel(f), info, actions);
+    return row;
+  }
 
   let control;
   const opts = f.type === "checkbox" ? [{ value: "true", label: "Yes / checked" }, { value: "false", label: "No / unchecked" }] : f.options;
@@ -289,12 +367,16 @@ const normLabel = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " 
 async function saveAnswer(f, value) {
   const label = f.label || f.placeholder;
   if (!label) return;
-  const { savedAnswers = [] } = await api.storage.local.get("savedAnswers");
+  const { profiles = {}, activeProfile } = await api.storage.local.get(["profiles", "activeProfile"]);
+  const name = activeProfile && profiles[activeProfile] ? activeProfile : Object.keys(profiles)[0];
+  if (!name) return;
+  const list = Array.isArray(profiles[name].savedAnswers) ? profiles[name].savedAnswers : [];
   const entry = { label, value, type: f.type };
-  const i = savedAnswers.findIndex((a) => normLabel(a.label) === normLabel(label));
-  if (i >= 0) savedAnswers[i] = entry;
-  else savedAnswers.push(entry);
-  await api.storage.local.set({ savedAnswers });
+  const i = list.findIndex((a) => normLabel(a.label) === normLabel(label));
+  if (i >= 0) list[i] = entry;
+  else list.push(entry);
+  profiles[name].savedAnswers = list;
+  await api.storage.local.set({ profiles });
 }
 
 // ---------- filling ----------
@@ -359,7 +441,10 @@ $("fillNext").onclick = async () => {
 $("copyAll").onclick = async () => {
   const text = current.fields
     .filter((f) => hasValue(current.values[f.id]))
-    .map((f) => `${labelOf(f)}: ${current.values[f.id]}`)
+    .map((f) => {
+      const v = current.values[f.id];
+      return `${labelOf(f)}: ${v && typeof v === "object" ? `[File: ${v.name}]` : v}`;
+    })
     .join("\n");
   await navigator.clipboard.writeText(text);
   setStatus("Copied all suggestions.");
