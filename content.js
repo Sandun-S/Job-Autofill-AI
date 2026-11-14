@@ -67,15 +67,56 @@
   }
 
   function optionLabel(el) {
-    if (el.labels && el.labels.length) return clean(el.labels[0].textContent);
+    if (el.labels && el.labels.length) {
+      const t = clean(el.labels[0].textContent);
+      if (t) return t;
+    }
     const wrap = el.closest("label");
-    if (wrap) return clean(wrap.textContent);
+    if (wrap) {
+      const t = clean(wrap.textContent);
+      if (t) return t;
+    }
+    const lb = el.getAttribute("aria-labelledby");
+    if (lb) {
+      const t = idsText(lb);
+      if (t) return t;
+    }
     const al = clean(el.getAttribute("aria-label"));
     if (al) return al;
-    return clean(el.nextSibling?.textContent) || el.value;
+    // Text kept in a neighbouring element (common in React UIs such as LinkedIn)
+    for (const s of [el.nextElementSibling, el.previousElementSibling]) {
+      if (!s || s.matches("input, select, textarea")) continue;
+      const t = clean(s.textContent);
+      if (t && t.length <= 120) return t;
+    }
+    let node = el.parentElement;
+    for (let i = 0; i < 3 && node; i++, node = node.parentElement) {
+      if (node.querySelectorAll("input[type=radio], input[type=checkbox]").length > 1) break;
+      const t = clean(node.textContent);
+      if (t && t.length <= 120) return t;
+    }
+    return el.value;
   }
 
-  function groupLabel(el) {
+  // The question text sitting above a radio group: the nearest container that holds
+  // the radios plus some text that is not one of the option labels.
+  function questionText(radios) {
+    const opts = new Set(radios.map((r) => optionLabel(r).toLowerCase()));
+    let node = radios[0].parentElement;
+    for (let i = 0; i < 7 && node; i++, node = node.parentElement) {
+      const parts = [];
+      for (const child of node.children) {
+        if (radios.some((r) => child.contains(r))) continue;
+        if (child.matches("script, style, svg")) continue;
+        const t = clean(child.textContent);
+        if (t && !opts.has(t.toLowerCase())) parts.push(t);
+      }
+      if (parts.length) return cut(parts.join(" "), 250);
+    }
+    return "";
+  }
+
+  function groupLabel(el, radios) {
     const fs = el.closest("fieldset");
     if (fs) {
       const lg = fs.querySelector("legend");
@@ -88,7 +129,7 @@
       const al = clean(rg.getAttribute("aria-label"));
       if (al) return al;
     }
-    return ancestorLabel(el) || clean(el.getAttribute("name"));
+    return questionText(radios || [el]) || ancestorLabel(el) || clean(el.getAttribute("name"));
   }
 
   function tag(el) {
@@ -254,9 +295,14 @@
         fields.push({
           id: tag(el),
           type: "radio",
-          label: cut(groupLabel(el), 250),
-          options: radios.map((r) => ({ value: r.value, label: cut(optionLabel(r), 120) })),
-          required: radios.some((r) => r.required),
+          label: cut(groupLabel(el, radios), 250),
+          options: radios.map((r) => {
+            const label = cut(optionLabel(r), 120);
+            // many UIs give every radio the same generic value ("on"); use the visible text instead
+            const v = r.value && r.value !== "on" ? r.value : label;
+            return { value: v, label };
+          }),
+          required: radios.some((r) => r.required || r.getAttribute("aria-required") === "true"),
         });
         return;
       }
@@ -291,6 +337,11 @@
       }
       if (tagName === "textarea" && el.maxLength > 0) f.maxLength = el.maxLength;
       fields.push(f);
+    });
+
+    // A trailing * in the question text means the field is required (LinkedIn and others)
+    fields.forEach((f) => {
+      if (!f.required && /\*\s*$/.test(f.label || "")) f.required = true;
     });
 
     // Read the real choices of custom dropdowns (one at a time)
@@ -359,10 +410,12 @@
         ? [...scope.querySelectorAll("input[type=radio]")].filter((r) => r.name === el.name)
         : [el];
       const v = clean(String(value)).toLowerCase();
+      const nv = norm(value);
       const hit =
-        radios.find((r) => r.value.toLowerCase() === v) ||
-        radios.find((r) => optionLabel(r).toLowerCase() === v) ||
-        radios.find((r) => optionLabel(r).toLowerCase().includes(v));
+        radios.find((r) => r.value && r.value !== "on" && r.value.toLowerCase() === v) ||
+        radios.find((r) => norm(optionLabel(r)) === nv) ||
+        radios.find((r) => nv && norm(optionLabel(r)).startsWith(nv)) ||
+        radios.find((r) => nv && norm(optionLabel(r)).includes(nv));
       if (!hit) return false;
       hit.click();
       mark(hit);

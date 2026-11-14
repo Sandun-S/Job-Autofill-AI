@@ -1,0 +1,24 @@
+# OS & Editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Extension packages & build artifacts
+*.zip
+*.xpi
+*.crx
+*.pem
+web-ext-artifacts/
+
+# Node / dependencies (if added later)
+node_modules/
+npm-debug.log*
+
+# Local environment / secrets
+.env
+.env.local
