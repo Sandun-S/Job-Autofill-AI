@@ -76,13 +76,8 @@
       const t = clean(wrap.textContent);
       if (t) return t;
     }
-    const lb = el.getAttribute("aria-labelledby");
-    if (lb) {
-      const t = idsText(lb);
-      if (t) return t;
-    }
-    const al = clean(el.getAttribute("aria-label"));
-    if (al) return al;
+    // Visible text comes first: some pages set aria-labelledby on every radio to the
+    // QUESTION, which would make all options look identical.
     // Text kept in a neighbouring element (common in React UIs such as LinkedIn)
     for (const s of [el.nextElementSibling, el.previousElementSibling]) {
       if (!s || s.matches("input, select, textarea")) continue;
@@ -95,6 +90,13 @@
       const t = clean(node.textContent);
       if (t && t.length <= 120) return t;
     }
+    const lb = el.getAttribute("aria-labelledby");
+    if (lb) {
+      const t = idsText(lb);
+      if (t) return t;
+    }
+    const al = clean(el.getAttribute("aria-label"));
+    if (al) return al;
     return el.value;
   }
 
@@ -296,12 +298,15 @@
           id: tag(el),
           type: "radio",
           label: cut(groupLabel(el, radios), 250),
-          options: radios.map((r) => {
-            const label = cut(optionLabel(r), 120);
+          options: (() => {
+            let labels = radios.map((r) => cut(optionLabel(r), 120));
+            // if the options are indistinguishable, fall back to their values
+            if (radios.length > 1 && new Set(labels).size < radios.length) {
+              labels = radios.map((r, i) => (r.value && r.value !== "on" ? r.value : `Option ${i + 1}`));
+            }
             // many UIs give every radio the same generic value ("on"); use the visible text instead
-            const v = r.value && r.value !== "on" ? r.value : label;
-            return { value: v, label };
-          }),
+            return radios.map((r, i) => ({ value: r.value && r.value !== "on" ? r.value : labels[i], label: labels[i] }));
+          })(),
           required: radios.some((r) => r.required || r.getAttribute("aria-required") === "true"),
         });
         return;
