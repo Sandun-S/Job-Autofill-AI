@@ -317,4 +317,167 @@ $("save").onclick = async () => {
   setTimeout(() => ($("msg").textContent = ""), 3000);
 };
 
+// ---------- export & import ----------
+function showImportMsg(text, isError = false) {
+  const el = $("importMsg");
+  el.style.color = isError ? "#d33" : "#2e9e5b";
+  el.style.opacity = "1";
+  el.textContent = text;
+}
+
+function sanitizeProfile(raw) {
+  const out = {};
+  if (!raw || typeof raw !== "object") return { savedAnswers: [] };
+  FIELDS.forEach((f) => {
+    if (typeof raw[f.k] === "string") out[f.k] = raw[f.k];
+  });
+  if (raw.cvFile && typeof raw.cvFile === "object" && typeof raw.cvFile.name === "string" && typeof raw.cvFile.data === "string") {
+    out.cvFile = {
+      name: raw.cvFile.name,
+      type: String(raw.cvFile.type || "application/pdf"),
+      size: Number(raw.cvFile.size) || 0,
+      data: raw.cvFile.data,
+    };
+  }
+  out.savedAnswers = Array.isArray(raw.savedAnswers)
+    ? raw.savedAnswers
+        .filter((a) => a && typeof a === "object" && typeof a.label === "string" && typeof a.value === "string" && a.label.trim() && a.value.trim())
+        .map((a) => ({ label: a.label.trim(), value: a.value.trim() }))
+    : [];
+  return out;
+}
+
+function sanitizeSettings(raw) {
+  const cur = readSettings();
+  if (!raw || typeof raw !== "object") return cur;
+  const prov = ["gemini", "deepseek", "custom"].includes(raw.provider) ? raw.provider : cur.provider;
+  return {
+    provider: prov,
+    gemini: {
+      key: typeof raw.gemini?.key === "string" ? raw.gemini.key.trim() : cur.gemini.key,
+      model: typeof raw.gemini?.model === "string" ? raw.gemini.model.trim() : cur.gemini.model,
+    },
+    deepseek: {
+      key: typeof raw.deepseek?.key === "string" ? raw.deepseek.key.trim() : cur.deepseek.key,
+      model: typeof raw.deepseek?.model === "string" ? raw.deepseek.model.trim() : cur.deepseek.model,
+    },
+    custom: {
+      baseUrl: typeof raw.custom?.baseUrl === "string" ? raw.custom.baseUrl.trim() : cur.custom.baseUrl,
+      key: typeof raw.custom?.key === "string" ? raw.custom.key.trim() : cur.custom.key,
+      model: typeof raw.custom?.model === "string" ? raw.custom.model.trim() : cur.custom.model,
+    },
+  };
+}
+
+$("exportData").onclick = async () => {
+  state.profiles[shownProfile] = readForm();
+  const payload = {
+    app: "cv-buddy",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    activeProfile: shownProfile,
+    profiles: state.profiles,
+  };
+  if ($("expApps").checked) {
+    const { applications = [] } = await api.storage.local.get("applications");
+    payload.applications = applications;
+  }
+  if ($("expSettings").checked) {
+    payload.settings = readSettings();
+  }
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `cv-buddy-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showImportMsg(`Exported ${Object.keys(state.profiles).length} profile(s).`);
+};
+
+$("importData").onclick = () => $("importFileInput").click();
+
+$("importFileInput").onchange = () => {
+  const file = $("importFileInput").files?.[0];
+  $("importFileInput").value = "";
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = async () => {
+    let data;
+    try {
+      data = JSON.parse(String(reader.result || ""));
+    } catch (e) {
+      showImportMsg("Could not parse JSON file.", true);
+      return;
+    }
+    if (!data || typeof data !== "object" || Array.isArray(data) || !data.profiles || typeof data.profiles !== "object" || Array.isArray(data.profiles)) {
+      showImportMsg("Invalid backup file: missing profiles.", true);
+      return;
+    }
+    const profileNames = Object.keys(data.profiles).filter((n) => n.trim());
+    if (!profileNames.length) {
+      showImportMsg("Backup file contains no profiles.", true);
+      return;
+    }
+
+    const hasApps = Array.isArray(data.applications) && data.applications.length > 0;
+    const hasSettings = data.settings && typeof data.settings === "object" && !Array.isArray(data.settings);
+    const parts = [`${profileNames.length} profile(s) (${profileNames.join(", ")})`];
+    if (hasApps) parts.push(`${data.applications.length} application(s)`);
+    if (hasSettings) parts.push("AI provider settings");
+
+    if (!confirm(`Import ${parts.join(", ")}?\nMatching profile names will be overwritten.`)) return;
+
+    state.profiles[shownProfile] = readForm();
+    profileNames.forEach((name) => {
+      state.profiles[name] = sanitizeProfile(data.profiles[name]);
+    });
+
+    if (typeof data.activeProfile === "string" && state.profiles[data.activeProfile]) {
+      shownProfile = data.activeProfile;
+    } else if (!state.profiles[shownProfile]) {
+      shownProfile = Object.keys(state.profiles)[0];
+    }
+    state.activeProfile = shownProfile;
+
+    if (hasSettings) {
+      state.settings = sanitizeSettings(data.settings);
+      writeSettings(state.settings);
+    }
+
+    const toStore = {
+      settings: state.settings,
+      profiles: state.profiles,
+      activeProfile: state.activeProfile,
+    };
+
+    let addedApps = 0;
+    if (hasApps) {
+      const { applications: existing = [] } = await api.storage.local.get("applications");
+      const seenIds = new Set(existing.map((a) => a && a.id).filter(Boolean));
+      const merged = [...existing];
+      data.applications.forEach((a) => {
+        if (!a || typeof a !== "object") return;
+        if (a.id && seenIds.has(a.id)) return;
+        if (a.id) seenIds.add(a.id);
+        merged.push(a);
+        addedApps++;
+      });
+      toStore.applications = merged;
+    }
+
+    await api.storage.local.set(toStore);
+    renderProfileSelect();
+    writeForm(state.profiles[shownProfile]);
+
+    const done = [`Imported ${profileNames.length} profile(s)`];
+    if (hasApps) done.push(`${addedApps} new application(s)`);
+    if (hasSettings) done.push("AI settings");
+    showImportMsg(done.join(", ") + ".");
+  };
+  reader.onerror = () => showImportMsg("Could not read the selected file.", true);
+  reader.readAsText(file);
+};
+
 load();

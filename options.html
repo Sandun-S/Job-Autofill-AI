@@ -17,6 +17,7 @@
   .bar { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
   button { padding: 7px 14px; border: 1px solid #8884; border-radius: 6px; cursor: pointer; background: #8881; font: inherit; }
   button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+  label.inline { display: inline-flex; align-items: center; gap: 6px; font-weight: 400; margin: 6px 14px 0 0; cursor: pointer; }
   #msg { margin-left: 8px; color: #2e9e5b; }
 </style>
 </head>
@@ -71,6 +72,19 @@
   <p class="hint">Saved per profile: answers you gave in the popup for fields the AI could not fill. They are reused on future forms with this profile.</p>
   <div id="answers"></div>
   <div class="bar"><button id="addAnswer">Add answer</button></div>
+
+  <h2>Export &amp; import</h2>
+  <p class="hint">Export your profiles (including CV files and saved answers) to a JSON file to back up or move to another computer.</p>
+  <div>
+    <label class="inline"><input type="checkbox" id="expApps" checked> Include application log</label>
+    <label class="inline"><input type="checkbox" id="expSettings"> Include AI provider settings (API keys)</label>
+  </div>
+  <div class="bar">
+    <button type="button" id="exportData">Export data (JSON)</button>
+    <button type="button" id="importData">Import data (JSON)</button>
+    <input type="file" id="importFileInput" accept=".json,application/json" hidden>
+    <span id="importMsg" class="hint"></span>
+  </div>
 
   <div class="bar"><button id="save" class="primary">Save everything</button><span id="msg"></span></div>
   <script src="cvtext.js"></script>
