@@ -149,7 +149,7 @@
   function comboOptionEls(el) {
     const id = el.getAttribute("aria-controls");
     const lb = id && document.getElementById(id);
-    return [...(lb || document).querySelectorAll("[role='option']")];
+    return [...(lb || document).querySelectorAll("[role='option']")].filter(isVisible);
   }
 
   const norm = (s) =>
