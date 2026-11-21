@@ -388,14 +388,23 @@ function normalize(field, value) {
 async function fillValues(map) {
   try {
     setStatus("Filling...");
+    const target = { tabId: tab.id, allFrames: true };
+    await api.scripting.executeScript({ target, files: ["content.js"] });
     const results = await api.scripting.executeScript({
-      target: { tabId: tab.id, allFrames: true },
+      target,
       func: (v) => window.__jaf.fill(v),
       args: [map],
     });
     const filled = results.flatMap((r) => r.result?.filled || []);
+    const allErrors = results.flatMap((r) => Object.values(r.result?.errors || {}));
+    const allStale = results.length > 0 && results.every((r) => r.result?.stale);
     const requested = Object.keys(map).length;
-    setStatus(`Filled ${filled.length} of ${requested}. Check the page before continuing.`, filled.length < requested);
+    if (!filled.length && allStale) {
+      setStatus("Page was reloaded or changed — press Scan & suggest again.", true);
+      return 0;
+    }
+    const errHint = allErrors.length ? ` (${allErrors[0]})` : "";
+    setStatus(`Filled ${filled.length} of ${requested}.${errHint} Check the page before continuing.`, filled.length < requested);
     if (filled.length) await upsertApp("In progress"); // auto-track in the application log
     return filled.length;
   } catch (e) {

@@ -5,12 +5,75 @@
 
   const frameKey = Math.random().toString(36).slice(2, 6);
   let counter = 0;
+  const fieldEls = new Map();
   const SKIP_TYPES = new Set(["hidden", "submit", "button", "reset", "image", "password", "search"]);
   const KEYCODES = { ArrowDown: 40, Escape: 27, Enter: 13 };
 
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
   const cut = (s, n) => (s.length > n ? s.slice(0, n) : s);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  function shadowHost(el) {
+    const root = el?.getRootNode?.();
+    return root instanceof ShadowRoot ? root.host : null;
+  }
+
+  function parentDeep(node) {
+    if (!node) return null;
+    return node.parentElement || shadowHost(node);
+  }
+
+  function closestDeep(el, selector) {
+    for (let node = el; node; node = parentDeep(node)) {
+      if (node.nodeType === 1 && node.matches(selector)) return node;
+    }
+    return null;
+  }
+
+  function containsDeep(container, target) {
+    for (let node = target; node; node = parentDeep(node)) {
+      if (node === container) return true;
+    }
+    return false;
+  }
+
+  function queryAllDeep(selector, root = document) {
+    const out = [];
+    const walk = (node) => {
+      if (!node || !node.querySelectorAll) return;
+      for (const el of node.querySelectorAll("*")) {
+        if (el.matches(selector)) out.push(el);
+        if (el.shadowRoot) walk(el.shadowRoot);
+      }
+    };
+    walk(root);
+    return out;
+  }
+
+  function getByIdDeep(id, el) {
+    if (!id) return null;
+    for (let node = el; node; node = shadowHost(node)) {
+      const root = node.getRootNode?.();
+      if (root && typeof root.getElementById === "function") {
+        const found = root.getElementById(id);
+        if (found) return found;
+      }
+      if (!root || root === document) break;
+    }
+    return document.getElementById(id);
+  }
+
+  function deepText(node) {
+    if (!node) return "";
+    if (node.nodeType === 3) return node.textContent || "";
+    if (node.nodeType !== 1) return "";
+    if (node.tagName === "SLOT") {
+      return node.assignedNodes({ flatten: true }).map(deepText).join("");
+    }
+    let s = "";
+    for (const ch of node.childNodes) s += deepText(ch);
+    return s;
+  }
 
   function isVisible(el) {
     const st = getComputedStyle(el);
@@ -19,25 +82,25 @@
     return r.width > 0 || r.height > 0;
   }
 
-  function idsText(attr) {
+  function idsText(attr, el) {
     return clean(
       attr
         .split(/\s+/)
-        .map((id) => document.getElementById(id)?.textContent || "")
+        .map((id) => deepText(getByIdDeep(id, el)))
         .join(" ")
     );
   }
 
   function ancestorLabel(el) {
-    let node = el.parentElement;
-    for (let i = 0; i < 4 && node; i++, node = node.parentElement) {
+    let node = parentDeep(el);
+    for (let i = 0; i < 6 && node; i++, node = parentDeep(node)) {
       if (node.tagName === "FIELDSET") {
         const lg = node.querySelector("legend");
-        if (lg && clean(lg.textContent)) return clean(lg.textContent);
+        if (lg && clean(deepText(lg))) return clean(deepText(lg));
       }
-      const cand = node.querySelector("label, legend, [class*='label' i], [class*='question' i]");
-      if (cand && !cand.contains(el)) {
-        const t = clean(cand.textContent);
+      const cand = node.querySelector("label, legend, [class*='label' i], [class*='question' i], [data-test='section-title']");
+      if (cand && !containsDeep(cand, el)) {
+        const t = clean(deepText(cand));
         if (t) return t;
       }
     }
@@ -47,33 +110,56 @@
   function labelFor(el) {
     const lb = el.getAttribute("aria-labelledby");
     if (lb) {
-      const t = idsText(lb);
+      const t = idsText(lb, el);
       if (t) return t;
     }
     if (el.labels && el.labels.length) {
-      const t = clean([...el.labels].map((l) => l.textContent).join(" "));
+      const t = clean([...el.labels].map((l) => deepText(l)).join(" "));
       if (t) return t;
     }
     const al = clean(el.getAttribute("aria-label"));
     if (al) return al;
     const wrap = el.closest("label");
     if (wrap) {
-      const t = clean(wrap.textContent);
+      const t = clean(deepText(wrap));
       if (t) return t;
+    }
+    const host = shadowHost(el);
+    if (host) {
+      const hl = clean(host.getAttribute("label")) || clean(host.getAttribute("aria-label"));
+      if (hl) return hl;
+      const hlb = host.getAttribute("aria-labelledby");
+      if (hlb) {
+        const t = idsText(hlb, host);
+        if (t) return t;
+      }
     }
     const anc = ancestorLabel(el);
     if (anc) return anc;
-    return clean(el.getAttribute("placeholder")) || clean(el.getAttribute("name")) || "";
+    return (
+      clean(el.getAttribute("placeholder")) ||
+      clean(el.getAttribute("name")) ||
+      clean(host?.getAttribute("placeholder")) ||
+      clean(host?.getAttribute("name")) ||
+      ""
+    );
+  }
+
+  function isRequired(el) {
+    if (el.required || el.getAttribute("aria-required") === "true") return true;
+    const host = shadowHost(el);
+    return !!(host && (host.hasAttribute("required") || host.getAttribute("aria-required") === "true"));
   }
 
   function optionLabel(el) {
+    const lb = el.getAttribute("aria-labelledby");
     if (el.labels && el.labels.length) {
-      const t = clean(el.labels[0].textContent);
+      const t = clean(deepText(el.labels[0]));
       if (t) return t;
     }
     const wrap = el.closest("label");
     if (wrap) {
-      const t = clean(wrap.textContent);
+      const t = clean(deepText(wrap));
       if (t) return t;
     }
     // Visible text comes first: some pages set aria-labelledby on every radio to the
@@ -81,22 +167,26 @@
     // Text kept in a neighbouring element (common in React UIs such as LinkedIn)
     for (const s of [el.nextElementSibling, el.previousElementSibling]) {
       if (!s || s.matches("input, select, textarea")) continue;
-      const t = clean(s.textContent);
+      const t = clean(deepText(s));
       if (t && t.length <= 120) return t;
     }
-    let node = el.parentElement;
-    for (let i = 0; i < 3 && node; i++, node = node.parentElement) {
-      if (node.querySelectorAll("input[type=radio], input[type=checkbox]").length > 1) break;
-      const t = clean(node.textContent);
+    let node = parentDeep(el);
+    for (let i = 0; i < 3 && node; i++, node = parentDeep(node)) {
+      if (queryAllDeep("input[type=radio], input[type=checkbox]", node).length > 1) break;
+      const t = clean(deepText(node));
       if (t && t.length <= 120) return t;
     }
-    const lb = el.getAttribute("aria-labelledby");
     if (lb) {
-      const t = idsText(lb);
+      const t = idsText(lb, el);
       if (t) return t;
     }
     const al = clean(el.getAttribute("aria-label"));
     if (al) return al;
+    const host = shadowHost(el);
+    if (host) {
+      const hl = clean(host.getAttribute("label")) || clean(host.getAttribute("aria-label"));
+      if (hl) return hl;
+    }
     return el.value;
   }
 
@@ -104,11 +194,11 @@
   // the radios plus some text that is not one of the option labels.
   function questionText(radios) {
     const opts = new Set(radios.map((r) => optionLabel(r).toLowerCase()));
-    let node = radios[0].parentElement;
-    for (let i = 0; i < 7 && node; i++, node = node.parentElement) {
+    let node = parentDeep(radios[0]);
+    for (let i = 0; i < 7 && node; i++, node = parentDeep(node)) {
       const parts = [];
       for (const child of node.children) {
-        if (radios.some((r) => child.contains(r))) continue;
+        if (radios.some((r) => containsDeep(child, r))) continue;
         if (child.matches("script, style, svg")) continue;
         const t = clean(child.textContent);
         if (t && !opts.has(t.toLowerCase())) parts.push(t);
@@ -119,15 +209,15 @@
   }
 
   function groupLabel(el, radios) {
-    const fs = el.closest("fieldset");
+    const fs = closestDeep(el, "fieldset");
     if (fs) {
       const lg = fs.querySelector("legend");
       if (lg && clean(lg.textContent)) return clean(lg.textContent);
     }
-    const rg = el.closest("[role='radiogroup'], [role='group']");
+    const rg = closestDeep(el, "[role='radiogroup'], [role='group']");
     if (rg) {
       const lb = rg.getAttribute("aria-labelledby");
-      if (lb && idsText(lb)) return idsText(lb);
+      if (lb && idsText(lb, rg)) return idsText(lb, rg);
       const al = clean(rg.getAttribute("aria-label"));
       if (al) return al;
     }
@@ -136,20 +226,27 @@
 
   function tag(el) {
     if (!el.dataset.jafId) el.dataset.jafId = `${frameKey}-${++counter}`;
+    fieldEls.set(el.dataset.jafId, el);
     return el.dataset.jafId;
   }
 
   // ---------- custom dropdowns (react-select, Greenhouse, etc.) ----------
   function key(el, k) {
     el.dispatchEvent(
-      new KeyboardEvent("keydown", { key: k, code: k, keyCode: KEYCODES[k], which: KEYCODES[k], bubbles: true, cancelable: true })
+      new KeyboardEvent("keydown", { key: k, code: k, keyCode: KEYCODES[k], which: KEYCODES[k], bubbles: true, cancelable: true, composed: true })
     );
   }
 
   function comboOptionEls(el) {
     const id = el.getAttribute("aria-controls");
-    const lb = id && document.getElementById(id);
-    return [...(lb || document).querySelectorAll("[role='option']")].filter(isVisible);
+    const lb = id && getByIdDeep(id, el);
+    if (lb) return queryAllDeep("[role='option']", lb).filter(isVisible);
+    const root = el.getRootNode?.() instanceof ShadowRoot ? el.getRootNode() : document;
+    let opts = queryAllDeep("[role='option']", root).filter(isVisible);
+    if (!opts.length && root !== document) {
+      opts = queryAllDeep("[role='option']", document).filter(isVisible);
+    }
+    return opts;
   }
 
   const norm = (s) =>
@@ -160,20 +257,30 @@
       .trim();
 
   function mouse(el, type) {
-    el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0 }));
+    el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, composed: true, button: 0 }));
   }
 
   function comboControl(el) {
-    return el.closest("[class*='control' i]") || el.parentElement || el;
+    return closestDeep(el, "[class*='control' i], [class*='trigger' i]") || parentDeep(el) || el;
   }
 
-  // Opens the menu the way a real click does (mousedown on the control), falls back to ArrowDown.
+  // Opens the menu the way a real click does (click / mousedown on the input or control), falls back to ArrowDown.
   async function openCombo(el) {
     el.focus();
     if (comboOptionEls(el).length) return true;
-    mouse(comboControl(el), "mousedown");
+    mouse(el, "mousedown");
+    mouse(el, "mouseup");
+    el.click();
     await sleep(250);
     if (comboOptionEls(el).length) return true;
+    const ctrl = comboControl(el);
+    if (ctrl && ctrl !== el) {
+      mouse(ctrl, "mousedown");
+      mouse(ctrl, "mouseup");
+      ctrl.click?.();
+      await sleep(250);
+      if (comboOptionEls(el).length) return true;
+    }
     key(el, "ArrowDown");
     await sleep(300);
     return comboOptionEls(el).length > 0;
@@ -182,7 +289,7 @@
   function pickOption(opts, value) {
     const v = norm(value);
     if (!v) return null;
-    const items = opts.map((o) => ({ o, t: norm(o.textContent) })).filter((x) => x.t);
+    const items = opts.map((o) => ({ o, t: norm(deepText(o)) })).filter((x) => x.t);
     const hit =
       items.find((x) => x.t === v) ||
       items.find((x) => x.t.startsWith(v)) ||
@@ -207,10 +314,17 @@
   async function readComboOptions(el) {
     await openCombo(el);
     const labels = comboOptionEls(el)
-      .map((o) => clean(o.textContent))
+      .map((o) => clean(deepText(o)))
       .filter(Boolean);
     key(el, "Escape");
     el.blur();
+    await sleep(120);
+    if (comboOptionEls(el).length && document.body) {
+      mouse(document.body, "mousedown");
+      mouse(document.body, "mouseup");
+      document.body.click();
+      await sleep(100);
+    }
     return labels.slice(0, 80);
   }
 
@@ -234,7 +348,7 @@
     if (!hit) {
       const have = comboOptionEls(el)
         .slice(0, 6)
-        .map((o) => clean(o.textContent))
+        .map((o) => clean(deepText(o)))
         .join(" | ");
       setNative(el, "");
       fire(el, ["input"]);
@@ -243,13 +357,13 @@
       throw new Error(opened || have ? `no option matches "${text}" (options: ${have || "none"})` : "could not open the dropdown");
     }
 
-    const wanted = norm(hit.textContent);
+    const wanted = norm(deepText(hit));
     mouse(hit, "mousedown");
     mouse(hit, "mouseup");
     hit.click();
     await sleep(250);
     // verify; if the menu is still open and the value did not take, press Enter on the focused option
-    if (!norm(comboControl(el).textContent).includes(wanted) && comboOptionEls(el).length) {
+    if (!norm(deepText(comboControl(el))).includes(wanted) && comboOptionEls(el).length) {
       key(el, "Enter");
       await sleep(250);
     }
@@ -263,9 +377,9 @@
     const seenRadioGroups = new Set();
     const combos = [];
 
-    document.querySelectorAll("input, textarea, select").forEach((el) => {
-      if (el.disabled) return;
-      if (el.closest("footer, nav, header")) return; // newsletter/search/login boxes
+    queryAllDeep("input, textarea, select").forEach((el) => {
+      if (el.disabled || shadowHost(el)?.hasAttribute("disabled")) return;
+      if (closestDeep(el, "footer, nav, header")) return; // newsletter/search/login boxes
       const tagName = el.tagName.toLowerCase();
       const type = tagName === "input" ? (el.type || "text").toLowerCase() : tagName;
       const isCombo = tagName === "input" && el.getAttribute("role") === "combobox";
@@ -279,7 +393,7 @@
           id: tag(el),
           type: "dropdown",
           label: cut(labelFor(el), 250),
-          required: el.required || el.getAttribute("aria-required") === "true",
+          required: isRequired(el),
         };
         fields.push(f);
         combos.push([el, f]);
@@ -292,7 +406,7 @@
         if (el.name && seenRadioGroups.has(key2)) return;
         seenRadioGroups.add(key2);
         const radios = el.name
-          ? [...scope.querySelectorAll("input[type=radio]")].filter((r) => r.name === el.name && !r.disabled)
+          ? queryAllDeep("input[type=radio]", scope).filter((r) => r.name === el.name && !r.disabled)
           : [el];
         fields.push({
           id: tag(el),
@@ -307,7 +421,7 @@
             // many UIs give every radio the same generic value ("on"); use the visible text instead
             return radios.map((r, i) => ({ value: r.value && r.value !== "on" ? r.value : labels[i], label: labels[i] }));
           })(),
-          required: radios.some((r) => r.required || r.getAttribute("aria-required") === "true"),
+          required: radios.some((r) => isRequired(r)),
         });
         return;
       }
@@ -319,7 +433,7 @@
           type: "checkbox",
           label: cut(optionLabel(el) || labelFor(el), 250),
           group: cut(ancestorLabel(el), 200),
-          required: el.required,
+          required: isRequired(el),
           current: el.checked,
         });
         return;
@@ -331,7 +445,7 @@
           type: "file",
           label: cut(labelFor(el) || ancestorLabel(el) || "File upload", 250),
           accept: el.getAttribute("accept") || "",
-          required: el.required || el.getAttribute("aria-required") === "true",
+          required: isRequired(el),
           current: el.files && el.files.length ? el.files[0].name : "",
         });
         return;
@@ -343,8 +457,8 @@
         id: tag(el),
         type,
         label: cut(labelFor(el), 250),
-        placeholder: clean(el.getAttribute("placeholder")),
-        required: el.required || el.getAttribute("aria-required") === "true",
+        placeholder: clean(el.getAttribute("placeholder") || shadowHost(el)?.getAttribute("placeholder")),
+        required: isRequired(el),
         current: el.value || "",
       };
       if (tagName === "select") {
@@ -382,7 +496,7 @@
 
   // ---------- filling ----------
   function fire(el, types) {
-    types.forEach((t) => el.dispatchEvent(new Event(t, { bubbles: true, cancelable: true })));
+    types.forEach((t) => el.dispatchEvent(new Event(t, { bubbles: true, cancelable: true, composed: true })));
   }
 
   function setNative(el, value) {
@@ -418,13 +532,13 @@
       dt.items.add(file);
       el.files = dt.files;
       fire(el, ["input", "change"]);
-      mark(isVisible(el) ? el : el.parentElement || el);
+      mark(isVisible(el) ? el : shadowHost(el) || parentDeep(el) || el);
       return true;
     }
 
     if (el.dataset.jafCombo) {
       const ok = await fillCombo(el, value);
-      if (ok) mark(el.closest("[class*='control' i]") || el);
+      if (ok) mark(el.closest("[class*='control' i]") || shadowHost(el) || el);
       return ok;
     }
 
@@ -438,7 +552,7 @@
     if (type === "radio") {
       const scope = el.form || document;
       const radios = el.name
-        ? [...scope.querySelectorAll("input[type=radio]")].filter((r) => r.name === el.name)
+        ? queryAllDeep("input[type=radio]", scope).filter((r) => r.name === el.name)
         : [el];
       const v = clean(String(value)).toLowerCase();
       const nv = norm(value);
@@ -480,10 +594,13 @@
     const filled = [];
     const failed = [];
     const errors = {};
-    for (const [id, value] of Object.entries(values || {})) {
-      if (!id.startsWith(frameKey + "-")) continue; // belongs to another frame
-      const el = document.querySelector(`[data-jaf-id="${id}"]`);
-      if (!el) {
+    let matchedFrame = 0;
+    const entries = Object.entries(values || {});
+    for (const [id, value] of entries) {
+      const el = fieldEls.get(id) || (!id.startsWith(frameKey + "-") ? queryAllDeep(`[data-jaf-id="${id}"]`)[0] : null);
+      if (!id.startsWith(frameKey + "-") && !el) continue; // belongs to another frame or stale scan
+      matchedFrame++;
+      if (!el || !el.isConnected) {
         failed.push(id);
         errors[id] = "field no longer on the page (rescan)";
         continue;
@@ -499,19 +616,18 @@
         errors[id] = (e && e.message) || String(e);
       }
     }
-    return { filled, failed, errors };
+    return { filled, failed, errors, stale: entries.length > 0 && matchedFrame === 0 };
   }
 
   // Clicks a Next/Continue button. Never clicks anything that looks like Submit/Apply.
   function clickNext() {
     const nextRe = /^(next|continue|next step|save (and|&) continue|save (and|&) next|proceed)\b/i;
     const badRe = /submit|apply|send|finish|confirm|place order|review/i;
-    const btns = [
-      ...document.querySelectorAll("button, input[type=button], input[type=submit], a[role=button], [role=button]"),
-    ];
+    const btns = queryAllDeep("button, input[type=button], input[type=submit], a[role=button], [role=button]");
     for (const b of btns) {
-      if (b.disabled || !isVisible(b)) continue;
-      const text = clean(b.innerText || b.value || b.getAttribute("aria-label"));
+      if (b.disabled || shadowHost(b)?.hasAttribute("disabled") || !isVisible(b)) continue;
+      const host = shadowHost(b);
+      const text = clean(b.innerText || b.value || b.getAttribute("aria-label") || host?.innerText || host?.textContent);
       if (nextRe.test(text) && !badRe.test(text)) {
         b.click();
         return text;
