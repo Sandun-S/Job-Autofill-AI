@@ -379,8 +379,9 @@ $("exportData").onclick = async () => {
     profiles: state.profiles,
   };
   if ($("expApps").checked) {
-    const { applications = [] } = await api.storage.local.get("applications");
+    const { applications = [], careerPages = [] } = await api.storage.local.get(["applications", "careerPages"]);
     payload.applications = applications;
+    payload.careerPages = careerPages;
   }
   if ($("expSettings").checked) {
     payload.settings = readSettings();
@@ -422,9 +423,11 @@ $("importFileInput").onchange = () => {
     }
 
     const hasApps = Array.isArray(data.applications) && data.applications.length > 0;
+    const hasCareers = Array.isArray(data.careerPages) && data.careerPages.length > 0;
     const hasSettings = data.settings && typeof data.settings === "object" && !Array.isArray(data.settings);
     const parts = [`${profileNames.length} profile(s) (${profileNames.join(", ")})`];
     if (hasApps) parts.push(`${data.applications.length} application(s)`);
+    if (hasCareers) parts.push(`${data.careerPages.length} career page(s)`);
     if (hasSettings) parts.push("AI provider settings");
 
     if (!confirm(`Import ${parts.join(", ")}?\nMatching profile names will be overwritten.`)) return;
@@ -467,12 +470,29 @@ $("importFileInput").onchange = () => {
       toStore.applications = merged;
     }
 
+    let addedCareers = 0;
+    if (hasCareers) {
+      const { careerPages: existing = [] } = await api.storage.local.get("careerPages");
+      const seenUrls = new Set(existing.map((c) => String(c?.url || "").trim().toLowerCase()));
+      const merged = [...existing];
+      data.careerPages.forEach((c) => {
+        if (!c || typeof c !== "object" || typeof c.url !== "string") return;
+        const key = c.url.trim().toLowerCase();
+        if (!key || seenUrls.has(key)) return;
+        seenUrls.add(key);
+        merged.push(c);
+        addedCareers++;
+      });
+      toStore.careerPages = merged;
+    }
+
     await api.storage.local.set(toStore);
     renderProfileSelect();
     writeForm(state.profiles[shownProfile]);
 
     const done = [`Imported ${profileNames.length} profile(s)`];
     if (hasApps) done.push(`${addedApps} new application(s)`);
+    if (hasCareers) done.push(`${addedCareers} new career page(s)`);
     if (hasSettings) done.push("AI settings");
     showImportMsg(done.join(", ") + ".");
   };

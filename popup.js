@@ -73,6 +73,10 @@ $("logLink").onclick = () => {
   api.tabs.create({ url: api.runtime.getURL("log.html") });
   window.close();
 };
+$("careersLink").onclick = () => {
+  api.tabs.create({ url: api.runtime.getURL("careers.html") });
+  window.close();
+};
 
 // ---------- init ----------
 async function init() {

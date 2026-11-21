@@ -1,0 +1,100 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Career pages - CV Buddy</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px system-ui, sans-serif; max-width: 1120px; margin: 24px auto; padding: 0 16px; }
+  h1 { font-size: 20px; margin-bottom: 6px; }
+  h2 { font-size: 16px; margin: 24px 0 8px; border-bottom: 1px solid #8884; padding-bottom: 4px; }
+  .nav { margin-bottom: 14px; font-size: 13px; }
+  .bar { display: flex; gap: 8px; align-items: center; margin: 10px 0; flex-wrap: wrap; }
+  input, select, textarea, button { font: inherit; padding: 5px 7px; box-sizing: border-box; }
+  button { border: 1px solid #8884; border-radius: 6px; background: #8881; cursor: pointer; }
+  button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+  button:disabled { opacity: .5; cursor: default; }
+  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  th, td { text-align: left; padding: 6px; border-bottom: 1px solid #8883; vertical-align: top; }
+  td input, td textarea { width: 100%; }
+  td textarea { min-height: 30px; resize: vertical; }
+  .hint { opacity: .7; font-size: 12px; }
+  .nowrap { white-space: nowrap; }
+  .badge { display: inline-block; padding: 2px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+  .badge.high { background: #16a34a22; color: #16a34a; border: 1px solid #16a34a55; }
+  .badge.medium { background: #ca8a0422; color: #ca8a04; border: 1px solid #ca8a0455; }
+  #bulkBox { border: 1px solid #8884; border-radius: 8px; padding: 10px; margin: 8px 0; }
+  #bulkUrls { width: 100%; min-height: 90px; resize: vertical; }
+  #scanStatus { min-height: 18px; margin: 6px 0; }
+  #scanStatus.err { color: #d33; }
+</style>
+</head>
+<body>
+  <h1>Career pages</h1>
+  <div class="nav">
+    <a href="log.html">Application log</a> &middot; <a href="options.html">Settings / profile</a>
+  </div>
+
+  <h2>Find opportunities with AI</h2>
+  <p class="hint">Scans your saved career pages, extracts open roles, and matches them against your selected profile and CV.</p>
+  <div class="bar">
+    <label for="profileSel">Profile:</label>
+    <select id="profileSel"></select>
+    <button id="findBtn" class="primary">Find Opportunities</button>
+    <button id="stopBtn" hidden>Stop</button>
+    <button id="clearOppBtn">Clear results</button>
+  </div>
+  <div id="scanStatus" class="hint"></div>
+
+  <table id="oppTable" hidden>
+    <thead>
+      <tr>
+        <th>Role</th>
+        <th>Company</th>
+        <th>Match</th>
+        <th>Apply site</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody id="oppRows"></tbody>
+  </table>
+  <p id="oppEmpty" class="hint">No opportunities scanned yet. Click <strong>Find Opportunities</strong> above to scan your career pages.</p>
+
+  <h2>Saved career pages <span id="pageSummary" class="hint"></span></h2>
+  <div class="bar">
+    <input id="newCompany" type="text" placeholder="Company (optional)" style="width: 180px">
+    <input id="newUrl" type="url" placeholder="https://company.com/careers" style="flex: 1; min-width: 240px">
+    <button id="addBtn" class="primary">Add</button>
+    <button id="toggleBulkBtn">Bulk add URLs</button>
+  </div>
+
+  <div id="bulkBox" hidden>
+    <p class="hint" style="margin: 0 0 6px">Paste multiple career page URLs (one per line or space-separated). Duplicates are skipped automatically.</p>
+    <textarea id="bulkUrls" placeholder="https://example.com/careers&#10;https://another.com/jobs"></textarea>
+    <div class="bar">
+      <button id="bulkAddBtn" class="primary">Add URLs</button>
+      <button id="bulkCancelBtn">Cancel</button>
+    </div>
+  </div>
+
+  <div class="bar">
+    <input id="q" type="text" placeholder="Filter career pages by company, URL, or notes..." style="flex: 1; max-width: 420px">
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Company</th>
+        <th>Career page URL</th>
+        <th>Notes</th>
+        <th>Last checked</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="pageRows"></tbody>
+  </table>
+  <p id="pageEmpty" class="hint" hidden>No career pages saved yet. Add a URL above to get started.</p>
+
+  <script src="careers.js"></script>
+</body>
+</html>

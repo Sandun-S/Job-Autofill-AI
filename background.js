@@ -7,6 +7,12 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch((e) => sendResponse({ error: String((e && e.message) || e) }));
     return true; // async response
   }
+  if (msg && msg.type === "scanCareerPage") {
+    scanCareerPage(msg)
+      .then(sendResponse)
+      .catch((e) => sendResponse({ error: String((e && e.message) || e) }));
+    return true; // async response
+  }
 });
 
 const DEFAULTS = {
@@ -15,7 +21,7 @@ const DEFAULTS = {
   custom: { model: "", baseUrl: "" },
 };
 
-async function suggest(scan) {
+async function getProviderAndProfile(profileNameOverride) {
   const { settings = {}, profiles = {}, activeProfile, savedAnswers: legacySaved = [] } = await api.storage.local.get([
     "settings",
     "profiles",
@@ -25,10 +31,21 @@ async function suggest(scan) {
   const provider = settings.provider || "gemini";
   const cfg = { ...DEFAULTS[provider], ...(settings[provider] || {}) };
   if (!cfg.key) throw new Error(`No API key set for ${provider}. Open the extension options and add one.`);
-  const profile = profiles[activeProfile];
+  const profileKey = profileNameOverride || activeProfile;
+  const profile = profiles[profileKey];
   if (!profile || !(profile.cvText || profile.fullName)) {
     throw new Error("Your profile is empty. Open the extension options and add your CV and details.");
   }
+  return { provider, cfg, profile, legacySaved };
+}
+
+async function callAI(provider, cfg, system, user) {
+  if (provider === "gemini") return await callGemini(cfg, system, user);
+  return await callOpenAICompat(provider, cfg, system, user);
+}
+
+async function suggest(scan) {
+  const { provider, cfg, profile, legacySaved } = await getProviderAndProfile();
   if (!scan.fields.length) throw new Error("No fillable form fields found on this page.");
 
   const savedAnswers = Array.isArray(profile.savedAnswers) ? profile.savedAnswers : legacySaved;
@@ -37,11 +54,7 @@ async function suggest(scan) {
   if (aiFields.length) {
     const system = buildSystem();
     const user = buildUser(profile, { ...scan, fields: aiFields }, savedAnswers);
-
-    let text;
-    if (provider === "gemini") text = await callGemini(cfg, system, user);
-    else text = await callOpenAICompat(provider, cfg, system, user);
-
+    const text = await callAI(provider, cfg, system, user);
     const parsed = parseJson(text);
     values = parsed.values || parsed;
   }
@@ -68,8 +81,8 @@ function buildSystem() {
   ].join("\n");
 }
 
-function buildUser(p, scan, saved) {
-  const profileBlock = [
+function buildProfileBlock(p) {
+  return [
     ["Name", p.fullName], ["Email", p.email], ["Phone", p.phone],
     ["City", p.city], ["Country", p.country], ["Address", p.address],
     ["LinkedIn", p.linkedin], ["GitHub", p.github], ["Portfolio/Website", p.portfolio],
@@ -85,6 +98,10 @@ function buildUser(p, scan, saved) {
     .filter(([, v]) => v && String(v).trim())
     .map(([k, v]) => `${k}: ${v}`)
     .join("\n");
+}
+
+function buildUser(p, scan, saved) {
+  const profileBlock = buildProfileBlock(p);
 
   const fields = scan.fields.map((f) => {
     const o = { id: f.id, type: f.type, label: f.label };
@@ -174,5 +191,145 @@ function parseJson(text) {
     const b = t.lastIndexOf("}");
     if (a >= 0 && b > a) return JSON.parse(t.slice(a, b + 1));
     throw new Error("Could not read the model's answer as JSON.");
+  }
+}
+
+// ---------- Career page scanner ----------
+function extractCareerPageData() {
+  const text = (document.body && document.body.innerText ? document.body.innerText : "")
+    .replace(/\s+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  const seen = new Set();
+  const links = [];
+  for (const a of document.querySelectorAll("a[href]")) {
+    const rawHref = a.getAttribute("href") || "";
+    if (!rawHref || rawHref.startsWith("#") || /^(mailto|tel|javascript):/i.test(rawHref)) continue;
+    let href;
+    try {
+      href = new URL(a.href, location.href).href;
+    } catch (e) {
+      continue;
+    }
+    if (!/^https?:\/\//i.test(href)) continue;
+    const label = (a.innerText || a.getAttribute("aria-label") || a.title || "").replace(/\s+/g, " ").trim();
+    if (!label && !/job|career|position|apply|opening|role|workday/i.test(href)) continue;
+    const key = `${label}::${href}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    links.push({ text: label.slice(0, 140), href });
+    if (links.length >= 200) break;
+  }
+
+  return {
+    title: document.title || "",
+    url: location.href,
+    text: text.slice(0, 12000),
+    links,
+  };
+}
+
+function waitForTabLoad(tabId, timeoutMs = 20000) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      api.tabs.onUpdated.removeListener(onUpdated);
+      clearTimeout(timer);
+      resolve();
+    };
+    const onUpdated = (id, info) => {
+      if (id === tabId && info.status === "complete") finish();
+    };
+    api.tabs.onUpdated.addListener(onUpdated);
+    const timer = setTimeout(finish, timeoutMs);
+  });
+}
+
+async function scanCareerPage({ url, company, profileName }) {
+  const { provider, cfg, profile } = await getProviderAndProfile(profileName);
+  const tab = await api.tabs.create({ url, active: false });
+  try {
+    await waitForTabLoad(tab.id, 20000);
+    // Give SPAs (e.g. Workday, React boards) time to render job listings.
+    await new Promise((r) => setTimeout(r, 2500));
+
+    const results = await api.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true },
+      func: extractCareerPageData,
+    });
+    const frames = results.map((r) => r.result).filter(Boolean);
+    if (!frames.length) throw new Error("Could not read this career page.");
+
+    const seenLinks = new Set();
+    const mergedLinks = [];
+    for (const f of frames) {
+      for (const l of f.links || []) {
+        const key = `${l.text}::${l.href}`;
+        if (seenLinks.has(key)) continue;
+        seenLinks.add(key);
+        mergedLinks.push(l);
+        if (mergedLinks.length >= 250) break;
+      }
+      if (mergedLinks.length >= 250) break;
+    }
+
+    const mergedText = frames.map((f) => f.text).filter(Boolean).join("\n\n").slice(0, 14000);
+    const pageTitle = frames.find((f) => f.title)?.title || company || url;
+
+    const system = [
+      "You are a career assistant matching open job roles on a company's career page to a candidate's profile and CV.",
+      'Return ONLY a JSON object: {"roles": [{"title": "...", "applyUrl": "...", "match": "high"|"medium", "reason": "..."}]}.',
+      "Rules:",
+      "- Only include genuine open job positions found in the page text or links that are applicable to the candidate's skills, experience, target roles, and location/preferences.",
+      "- For applyUrl, use the exact matching URL from the extracted LINKS list when available; otherwise use the career page URL itself. Never invent URLs.",
+      "- Keep reason concise (1 short sentence explaining why the role fits the candidate).",
+      "- If no applicable open roles are found on the page, return {\"roles\": []}.",
+    ].join("\n");
+
+    const user = [
+      "=== CANDIDATE PROFILE ===",
+      buildProfileBlock(profile),
+      "",
+      "=== CV ===",
+      (profile.cvText || "").slice(0, 10000),
+      "",
+      `=== CAREER PAGE (${company || pageTitle}) ===`,
+      `URL: ${url}`,
+      "",
+      "=== EXTRACTED LINKS (JSON) ===",
+      JSON.stringify(mergedLinks),
+      "",
+      "=== PAGE TEXT ===",
+      mergedText,
+      "",
+      "Return the JSON object now.",
+    ].join("\n");
+
+    const raw = await callAI(provider, cfg, system, user);
+    const parsed = parseJson(raw);
+    const roles = Array.isArray(parsed.roles) ? parsed.roles : [];
+
+    const cleanRoles = roles
+      .filter((r) => r && typeof r === "object" && typeof r.title === "string" && r.title.trim())
+      .map((r) => {
+        let applyUrl = url;
+        try {
+          const u = new URL(String(r.applyUrl || ""));
+          if (u.protocol === "http:" || u.protocol === "https:") applyUrl = u.href;
+        } catch (e) {}
+        return {
+          title: r.title.trim(),
+          applyUrl,
+          match: String(r.match || "").toLowerCase() === "high" ? "high" : "medium",
+          reason: typeof r.reason === "string" ? r.reason.trim() : "",
+        };
+      });
+
+    return { roles: cleanRoles, scannedAt: new Date().toISOString() };
+  } finally {
+    await api.tabs.remove(tab.id).catch(() => {});
   }
 }
